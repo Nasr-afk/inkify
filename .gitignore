@@ -137,3 +137,9 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Inkify additions
+.env.local
+.vercel
+.DS_Store
+Thumbs.db
