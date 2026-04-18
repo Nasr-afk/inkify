@@ -1,0 +1,371 @@
+/**
+ * lib/handwritingEngine.ts
+ *
+ * Simulates natural human handwriting by combining two computation passes:
+ *
+ *   PASS 1 — Local transforms (per-character, independent)
+ *     Each character gets its own seeded RNG. Rotation, scale, opacity.
+ *     Changing one character never shifts any other.
+ *
+ *   PASS 2 — Sequential context (stateful, forward pass)
+ *     Baseline drift, clustering rhythm, space imperfection, line offsets.
+ *     These are inherently path-dependent — the hand carries state.
+ *     Uses a separate RNG stream seeded from a fixed root so the entire
+ *     text always produces the same output for the same input.
+ *
+ * All randomness is deterministic. Same text + options = same output, always.
+ */
+
+import React from 'react'
+
+// ─── Public types ─────────────────────────────────────────────────────────────
+
+export interface HandwritingOptions {
+  /** 0–100. Master amplitude control for all effects. Default: 30 */
+  messiness?:  number
+  /** CSS color string. Default: '#1a1a2e' */
+  inkColor?:   string
+  /** CSS font-family string. Default: serif */
+  fontFamily?: string
+  /** CSS font-size string. Default: '15px' */
+  fontSize?:   string
+  /** CSS line-height. Default: 1.9 */
+  lineHeight?: string | number
+  /**
+   * Global char index offset for this page slice. Default: 0
+   */
+  charIndexOffset?: number
+}
+
+// ─── Internal types ───────────────────────────────────────────────────────────
+
+/** Per-character local transform — fully independent, seeded by char index */
+interface LocalTransform {
+  rotate:     number   // deg   ±2.5 at full messiness
+  scaleX:     number   // 0.975 – 1.025
+  scaleY:     number   // 0.965 – 1.035
+  opacity:    number   // 0.88 – 1.0
+  microX:     number   // px  sub-pixel lateral micro-jitter
+  microY:     number   // px  sub-pixel vertical micro-jitter
+}
+
+/** Sequential context — accumulated across all characters in order */
+interface SeqContext {
+  baselineY:    number  // px  total baseline displacement (wave + drift)
+  letterGap:    number  // px  cluster-based extra letter-spacing
+  spaceWidth:   number  // em  randomised word-space width
+  lineOffsetX:  number  // px  horizontal nudge after a line break
+}
+
+type Token =
+  | { kind: 'char';    value: string; charIdx: number; seqIdx: number }
+  | { kind: 'space';   charIdx: number; seqIdx: number }
+  | { kind: 'newline'; seqIdx: number }
+
+// ─── PRNG ─────────────────────────────────────────────────────────────────────
+
+/**
+ * mulberry32 — stateful, 32-bit, passes BigCrush.
+ * Each call to next() advances the state and returns a float in [0, 1).
+ */
+function createRng(seed: number): () => number {
+  let s = seed >>> 0
+  return function next(): number {
+    s = (s + 0x6d2b79f5) >>> 0
+    let t = Math.imul(s ^ (s >>> 15), 1 | s)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 0x100000000
+  }
+}
+
+/** Knuth multiplicative hash — maps sequential indices to spread-out seeds */
+function seedForIndex(i: number): number {
+  return Math.imul(i + 1, 0x9e3779b9) >>> 0
+}
+
+/** Map rng() output from [0,1) to a signed range [-1, 1) */
+function signed(rng: () => number): number {
+  return rng() * 2 - 1
+}
+
+// ─── Pass 1: Local transforms ─────────────────────────────────────────────────
+
+/**
+ * Compute the character-local transforms.
+ * Uses an independent RNG seeded only from charIdx — completely isolated.
+ * Editing character N never affects character M.
+ */
+function computeLocal(charIdx: number, m: number): LocalTransform {
+  const rng = createRng(seedForIndex(charIdx))
+  const r   = () => signed(rng)
+
+  return {
+    rotate:  r() * 2.5  * m,
+    scaleX:  1 + r() * 0.025 * m,
+    scaleY:  1 + r() * 0.035 * m,
+    opacity: 1 - rng() * 0.12  * m,
+    microX:  r() * 1.2  * m,
+    microY:  r() * 1.8  * m,
+  }
+}
+
+// ─── Pass 2: Sequential context ───────────────────────────────────────────────
+
+/**
+ * Cluster state machine.
+ *
+ * Real handwriting groups letters into rhythmic clusters — some run together,
+ * some spread apart. The boundary between clusters shifts letter-spacing.
+ *
+ * Cluster sizes are 3–5 characters, randomly seeded per cluster boundary.
+ */
+interface ClusterState {
+  pos:      number   // position within current cluster (0-based)
+  size:     number   // current cluster length
+  tight:    boolean  // current cluster is tight (letters closer) or loose
+  rng:      () => number
+}
+
+function makeClusterState(): ClusterState {
+  const rng = createRng(0xc1a5_5e42)
+  return { pos: 0, size: Math.floor(rng() * 3) + 3, tight: true, rng }
+}
+
+function advanceCluster(cs: ClusterState, m: number): number {
+  cs.pos++
+  if (cs.pos >= cs.size) {
+    cs.pos   = 0
+    cs.size  = Math.floor(cs.rng() * 3) + 3   // next cluster: 3–5 chars
+    cs.tight = !cs.tight                        // alternate tight/loose
+  }
+  // Tight clusters: slight negative gap. Loose: slight positive.
+  // Amplitude grows with messiness. Hard ceiling so text stays readable.
+  const base = cs.tight ? -0.4 : 0.6
+  return base * m * 2   // px, scaled — max ±1.2px at full messiness
+}
+
+/**
+ * Compute the sequential context for every token in one forward pass.
+ *
+ * Using a single advancing RNG stream means the output is path-dependent
+ * (exactly like a real hand moving across paper), but still fully
+ * deterministic for a given text string.
+ */
+function computeSequentialContexts(tokens: Token[], m: number): Map<number, SeqContext> {
+  const out = new Map<number, SeqContext>()
+
+  // ── Shared sequential RNG streams ──────────────────────────────────────
+  // Each concern gets its own RNG so they don't steal entropy from each other.
+  const driftRng   = createRng(0xd7_1f_a0_03)   // cumulative baseline drift
+  const spaceRng   = createRng(0x5a_ce_b0_07)   // word-space width
+  const lineRng    = createRng(0x1b_3e_44_f1)   // line break offsets
+
+  const cluster    = makeClusterState()
+
+  // ── Accumulated state ───────────────────────────────────────────────────
+  let cumulativeDrift = 0   // random walk, px
+  let lineOffsetX     = 0   // horizontal nudge for current line, px
+  let lineBaselineY   = 0   // per-line baseline nudge, px
+  let seqCounter      = 0   // counts all tokens for wave phase
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i]
+
+    // ── Line break ──────────────────────────────────────────────────────
+    if (tok.kind === 'newline') {
+      // Each new line starts with a slightly different baseline and indent.
+      lineOffsetX  = signed(lineRng) * 3  * m    // ±3px horizontal offset
+      lineBaselineY = signed(lineRng) * 1  * m   // ±1px line baseline shift
+      cumulativeDrift *= 0.4                      // drift partially resets at newline
+      out.set(tok.seqIdx, {
+        baselineY:   0,
+        letterGap:   0,
+        spaceWidth:  0,
+        lineOffsetX: lineOffsetX,
+      })
+      continue
+    }
+
+    // ── Space ────────────────────────────────────────────────────────────
+    if (tok.kind === 'space') {
+      // Base word gap = 0.3em; add random ±variation
+      // Positive bias (+0.05) because tight spaces read worse than loose ones
+      const variation = (spaceRng() * 0.09 - 0.02) * m   // −0.02em to +0.07em
+      out.set(tok.seqIdx, {
+        baselineY:   0,
+        letterGap:   0,
+        spaceWidth:  0.3 + variation,
+        lineOffsetX: 0,
+      })
+      seqCounter++
+      continue
+    }
+
+    // ── Printable character ──────────────────────────────────────────────
+
+    // Baseline wave — sinusoidal, slow period
+    const wave = Math.sin(seqCounter * 0.18) * 1.8 * m
+
+    // Cumulative drift — bounded random walk so text doesn't run off-screen
+    cumulativeDrift += signed(driftRng) * 0.08 * m
+    cumulativeDrift  = Math.max(-3 * m, Math.min(3 * m, cumulativeDrift))
+
+    // Total Y: wave + drift + per-line nudge
+    const baselineY = wave + cumulativeDrift + lineBaselineY
+
+    // Cluster letter-spacing
+    const letterGap = advanceCluster(cluster, m)
+
+    out.set(tok.seqIdx, {
+      baselineY,
+      letterGap,
+      spaceWidth:  0,
+      lineOffsetX: lineOffsetX,
+    })
+
+    seqCounter++
+  }
+
+  return out
+}
+
+// ─── Tokeniser ────────────────────────────────────────────────────────────────
+
+/**
+ * Split text into tokens with two separate counters:
+ *   charIdx  — indexes printable chars only, used to seed local transforms
+ *   seqIdx   — indexes every token, used as key into sequential context map
+ */
+function tokenise(text: string): Token[] {
+  const tokens: Token[] = []
+  let charIdx = 0
+  let seqIdx  = 0
+
+  for (const ch of text) {
+    if (ch === '\n') {
+      tokens.push({ kind: 'newline', seqIdx: seqIdx++ })
+    } else if (ch === ' ' || ch === '\t') {
+      tokens.push({ kind: 'space', charIdx: charIdx++, seqIdx: seqIdx++ })
+    } else {
+      tokens.push({ kind: 'char', value: ch, charIdx: charIdx++, seqIdx: seqIdx++ })
+    }
+  }
+
+  return tokens
+}
+
+// ─── CSS helpers ─────────────────────────────────────────────────────────────
+
+function buildTransform(local: LocalTransform, seq: SeqContext): string {
+  const x = local.microX + seq.lineOffsetX
+  const y = local.microY + seq.baselineY
+  return [
+    `translate(${x.toFixed(3)}px, ${y.toFixed(3)}px)`,
+    `rotate(${local.rotate.toFixed(3)}deg)`,
+    `scale(${local.scaleX.toFixed(4)}, ${local.scaleY.toFixed(4)})`,
+  ].join(' ')
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * Render `text` as an array of React nodes with natural handwriting transforms.
+ *
+ * Wrap the call in useMemo — the function is pure but not free:
+ *
+ *   const nodes = useMemo(
+ *     () => renderHandwriting(text, { messiness, inkColor, fontFamily }),
+ *     [text, messiness, inkColor, fontFamily]
+ *   )
+ */
+export function renderHandwriting(
+  text:    string,
+  options: HandwritingOptions = {}
+): React.ReactNode[] {
+  const {
+    messiness        = 30,
+    inkColor         = '#1a1a2e',
+    fontFamily       = 'serif',
+    fontSize         = '15px',
+    lineHeight       = 1.9,
+    charIndexOffset  = 0,
+  } = options
+
+  if (!text) return []
+
+  const m      = Math.max(0, Math.min(100, messiness)) / 100
+  const tokens = tokenise(text)
+  const seqCtx = computeSequentialContexts(tokens, m)
+  const nodes: React.ReactNode[] = []
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i]
+    const ctx = seqCtx.get(tok.seqIdx)!
+
+    // ── Newline → <br> ─────────────────────────────────────────────────────
+    if (tok.kind === 'newline') {
+      nodes.push(React.createElement('br', { key: `br-${tok.seqIdx}` }))
+      continue
+    }
+
+    // ── Space → width-variable non-collapsing span ─────────────────────────
+    if (tok.kind === 'space') {
+      nodes.push(
+        React.createElement('span', {
+          key:   `sp-${tok.seqIdx}`,
+          style: {
+            display:     'inline-block',
+            position:    'relative' as const,
+            width:       `${ctx.spaceWidth.toFixed(4)}em`,
+            minWidth:    '0.15em',
+            fontFamily,
+            fontSize,
+          },
+        }, '\u00A0')
+      )
+      continue
+    }
+
+    // ── Printable character ────────────────────────────────────────────────
+    const local = computeLocal(tok.charIdx + charIndexOffset, m)
+
+    const style: React.CSSProperties = {
+      display:     'inline-block',
+      position:    'relative',
+      fontFamily,
+      fontSize,
+      lineHeight,
+      color:       inkColor,
+      transform:   buildTransform(local, ctx),
+      opacity:     local.opacity,
+      // Cluster spacing — marginRight shifts each character's gap
+      marginRight: `${ctx.letterGap.toFixed(3)}px`,
+      // Smooth color/opacity transitions; intentionally exclude transform
+      // (we don't want characters to animate as the user types)
+      transition:  'color 0.25s ease, opacity 0.25s ease',
+      // Prevent browser ligatures from bridging adjacent spans
+      fontVariantLigatures: 'none' as const,
+    }
+
+    nodes.push(
+      React.createElement(
+        'span',
+        { key: `ch-${tok.seqIdx}-${tok.value}`, style },
+        tok.value
+      )
+    )
+  }
+
+  return nodes
+}
+
+// ─── Warm-up ──────────────────────────────────────────────────────────────────
+
+/**
+ * Exercise the hot computation paths so V8 JITs them before the first
+ * real render. Call once at module load / app init.
+ */
+export function prewarmEngine(charCount = 500): void {
+  const dummy = 'x'.repeat(charCount)
+  renderHandwriting(dummy, { messiness: 50 })
+}

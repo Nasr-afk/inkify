@@ -1,0 +1,113 @@
+/* ── Mobile / safe-area ──────────────────────────────────────────────────── */
+/* Support notched phones (iPhone X+, Android cutout devices) */
+:root {
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Prevent double-tap zoom on buttons and interactive elements */
+button, a, input, textarea, select {
+  touch-action: manipulation;
+}
+
+/* Improve scrolling momentum on iOS */
+.scrollbar-thin, [class*="overflow"] {
+  -webkit-overflow-scrolling: touch;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+    --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  }
+
+  html {
+    @apply antialiased;
+    font-family: var(--font-sans);
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+@layer components {
+  .workspace-grid {
+    background-image:
+      linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #d1d5db transparent;
+  }
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+}
+
+/* ── Modal entrance ────────────────────────────────────────────────────────── */
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.96) translateY(6px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Spinner ───────────────────────────────────────────────────────────────── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Pending dots animation ────────────────────────────────────────────────── */
+@keyframes inkPulse {
+  0%, 100% { opacity: 0.25; transform: scaleY(0.7); }
+  50%       { opacity: 1;    transform: scaleY(1.2); }
+}
+
+/* ── Slider thumb styling ──────────────────────────────────────────────────── */
+input[type='range'].slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 14px;
+  width: 14px;
+  border-radius: 50%;
+  background: #7c3aed;
+  border: 2px solid white;
+  box-shadow: 0 0 0 1px #7c3aed, 0 1px 4px rgba(0,0,0,0.15);
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+input[type='range'].slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 3px rgba(124,58,237,0.2), 0 1px 4px rgba(0,0,0,0.15);
+}
+
+input[type='range'].slider::-moz-range-thumb {
+  height: 14px;
+  width: 14px;
+  border-radius: 50%;
+  background: #7c3aed;
+  border: 2px solid white;
+  box-shadow: 0 0 0 1px #7c3aed;
+  cursor: pointer;
+}
+
+input[type='range'].slider:focus {
+  outline: none;
+}
