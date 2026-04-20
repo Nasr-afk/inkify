@@ -27,12 +27,12 @@ function messinessLabel(v: number) {
 
 export function ControlsPanel() {
   const {
-    fontStyle, fontSize, inkColor, messiness,
-    setFontStyle, setFontSize, setInkColor, setMessiness,
+    fontStyle, fontSize, inkColor, messiness, pageStyle,
+    setFontStyle, setFontSize, setInkColor, setMessiness, setPageStyle,
   } = useEditor()
 
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-3 px-5 py-3">
+    <div className="flex items-center justify-center gap-x-5 px-5 py-3">
 
       {/* ── Font style ─────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-1.5">
@@ -41,7 +41,7 @@ export function ControlsPanel() {
         </label>
         <div className="flex gap-1">
           {FONTS.map(({ value, label, family }) => (
-            <button
+            <button suppressHydrationWarning
               key={value}
               title={label}
               onClick={() => setFontStyle(value)}
@@ -70,7 +70,7 @@ export function ControlsPanel() {
           Size
         </label>
         <div className="flex items-center gap-1">
-          <button
+          <button suppressHydrationWarning
             onClick={() => setFontSize(fontSize - 1)}
             disabled={fontSize <= FONT_SIZE_MIN}
             aria-label="Decrease font size"
@@ -81,7 +81,7 @@ export function ControlsPanel() {
           <span className="w-10 text-center text-[13px] font-semibold tabular-nums text-gray-700">
             {fontSize}
           </span>
-          <button
+          <button suppressHydrationWarning
             onClick={() => setFontSize(fontSize + 1)}
             disabled={fontSize >= FONT_SIZE_MAX}
             aria-label="Increase font size"
@@ -103,7 +103,7 @@ export function ControlsPanel() {
         <div className="flex items-center gap-2">
           <div className="flex gap-1">
             {INK_PRESETS.map(({ color, label }) => (
-              <button
+              <button suppressHydrationWarning
                 key={color}
                 title={label}
                 onClick={() => setInkColor(color)}
@@ -143,6 +143,33 @@ export function ControlsPanel() {
               </span>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Divider */}
+      <div className="hidden h-10 w-px bg-gray-100 lg:block" />
+
+      {/* ── Page lines ─────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+          Lines
+        </label>
+        <div className="flex items-center rounded-md border border-gray-200 text-[11px]">
+          {(['ruled', 'plain'] as const).map((style, i) => (
+            <button suppressHydrationWarning
+              key={style}
+              onClick={() => setPageStyle(style)}
+              className={clsx(
+                'px-2.5 py-1 capitalize transition-colors',
+                i === 0 ? 'rounded-l-md' : 'rounded-r-md border-l border-gray-200',
+                pageStyle === style
+                  ? 'bg-ink-50 text-ink-600'
+                  : 'text-gray-400 hover:bg-gray-50 hover:text-gray-600'
+              )}
+            >
+              {style}
+            </button>
+          ))}
         </div>
       </div>
 

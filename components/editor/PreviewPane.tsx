@@ -20,22 +20,6 @@ const ZOOM_LEVELS = [0.5, 0.75, 1] as const
 type ZoomLevel = typeof ZOOM_LEVELS[number]
 const ZOOM_LABELS: Record<ZoomLevel, string> = { 0.5: '50%', 0.75: '75%', 1: '100%' }
 
-// ─── Pending dots ─────────────────────────────────────────────────────────────
-
-function PendingDots() {
-  return (
-    <span className="flex items-center gap-[3px]" aria-label="Updating…">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="h-1 w-1 rounded-full bg-ink-400"
-          style={{ animation: 'inkPulse 1s ease-in-out infinite', animationDelay: `${i * 0.18}s` }}
-        />
-      ))}
-    </span>
-  )
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface PreviewPaneProps {
@@ -43,7 +27,7 @@ interface PreviewPaneProps {
 }
 
 export function PreviewPane({ onPageCountChange }: PreviewPaneProps) {
-  const { text, fontStyle, fontSize, fontFamily, inkColor, messiness } = useEditor()
+  const { text, setText, fontStyle, fontSize, fontFamily, inkColor, messiness, pageStyle } = useEditor()
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel | 'fit'>('fit')
 
   const { debounced: debouncedText, isPending } = useDebounce(text, 300)
@@ -79,70 +63,11 @@ export function PreviewPane({ onPageCountChange }: PreviewPaneProps) {
     [messiness, inkColor, fontFamily, fontSize]
   )
 
-  const isEmpty = text.trim().length === 0
-
   // Scaled page height — used to size the wrapper so pages stack correctly
   const scaledPageHeight = PAGE_HEIGHT * scale
 
   return (
-    <div className="flex h-full flex-col">
-
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
-        <div className="flex items-center gap-2">
-          <span className={clsx(
-            'h-2 w-2 rounded-full transition-colors duration-300',
-            isPending ? 'bg-amber-400' : 'bg-emerald-400'
-          )} />
-          <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">
-            Preview
-          </span>
-        </div>
-
-        <div className="flex h-5 items-center gap-3">
-          {/* Zoom controls */}
-          <div className="flex items-center rounded-md border border-gray-200 text-[11px]">
-            <button
-              onClick={() => setZoomLevel('fit')}
-              className={clsx(
-                'rounded-l-md px-2 py-0.5 transition-colors',
-                zoomLevel === 'fit'
-                  ? 'bg-ink-50 text-ink-600'
-                  : 'text-gray-400 hover:bg-gray-50 hover:text-gray-600'
-              )}
-            >
-              Fit
-            </button>
-            {ZOOM_LEVELS.map((lvl) => (
-              <button
-                key={lvl}
-                onClick={() => setZoomLevel(lvl)}
-                className={clsx(
-                  'border-l border-gray-200 px-2 py-0.5 transition-colors last:rounded-r-md',
-                  zoomLevel === lvl
-                    ? 'bg-ink-50 text-ink-600'
-                    : 'text-gray-400 hover:bg-gray-50 hover:text-gray-600'
-                )}
-              >
-                {ZOOM_LABELS[lvl]}
-              </button>
-            ))}
-          </div>
-
-          {/* Page count */}
-          {!isEmpty && (
-            <span className="text-[11px] text-gray-300">
-              {pages.length}p
-            </span>
-          )}
-
-          {isPending ? <PendingDots /> : (
-            <span className="rounded-full border border-gray-100 px-2 py-0.5 text-[11px] text-gray-300">
-              live
-            </span>
-          )}
-        </div>
-      </div>
+    <div className="relative flex h-full flex-col">
 
       {/* ── Page stack ──────────────────────────────────────────────────── */}
       <div
@@ -159,25 +84,23 @@ export function PreviewPane({ onPageCountChange }: PreviewPaneProps) {
           style={{ padding: `32px ${CONTAINER_PADDING / 2}px`, gap: 24 * scale }}
         >
           {pages.map((page) => (
-            // Outer wrapper: sized to scaled dimensions so siblings stack correctly
             <div
               key={page.pageIndex}
               style={{
-                width:  PAGE_WIDTH  * scale,
-                height: scaledPageHeight,
+                width:      PAGE_WIDTH * scale,
+                height:     scaledPageHeight,
                 flexShrink: 0,
-                position: 'relative',
+                position:   'relative',
               }}
             >
-              {/* Inner: full A4 size, scaled via transform */}
               <div
                 style={{
-                  position:       'absolute',
-                  top:            0,
-                  left:           0,
-                  width:          PAGE_WIDTH,
-                  height:         PAGE_HEIGHT,
-                  transform:      `scale(${scale})`,
+                  position:        'absolute',
+                  top:             0,
+                  left:            0,
+                  width:           PAGE_WIDTH,
+                  height:          PAGE_HEIGHT,
+                  transform:       `scale(${scale})`,
                   transformOrigin: 'top left',
                 }}
               >
@@ -186,12 +109,47 @@ export function PreviewPane({ onPageCountChange }: PreviewPaneProps) {
                   charOffset={page.charOffset}
                   pageIndex={page.pageIndex}
                   options={hwOptions}
+                  pageStyle={pageStyle}
                   isPending={isPending}
+                  editable={page.pageIndex === 0}
+                  rawText={page.pageIndex === 0 ? text : undefined}
+                  onTextChange={page.pageIndex === 0 ? setText : undefined}
                 />
               </div>
             </div>
           ))}
           <div style={{ height: 16 }} />
+        </div>
+      </div>
+
+      {/* ── Floating zoom controls ───────────────────────────────────────── */}
+      <div className="pointer-events-none absolute bottom-4 right-4 z-10">
+        <div className="pointer-events-auto flex items-center rounded-md border border-gray-200/70 bg-white/80 text-[11px] shadow-sm backdrop-blur-sm">
+          <button suppressHydrationWarning
+            onClick={() => setZoomLevel('fit')}
+            className={clsx(
+              'rounded-l-md px-2.5 py-1 transition-colors',
+              zoomLevel === 'fit'
+                ? 'bg-ink-50 text-ink-600'
+                : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700'
+            )}
+          >
+            Fit
+          </button>
+          {ZOOM_LEVELS.map((lvl) => (
+            <button suppressHydrationWarning
+              key={lvl}
+              onClick={() => setZoomLevel(lvl)}
+              className={clsx(
+                'border-l border-gray-200 px-2.5 py-1 transition-colors last:rounded-r-md',
+                zoomLevel === lvl
+                  ? 'bg-ink-50 text-ink-600'
+                  : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700'
+              )}
+            >
+              {ZOOM_LABELS[lvl]}
+            </button>
+          ))}
         </div>
       </div>
     </div>

@@ -1,4 +1,3 @@
-export { TextEditor }   from './TextEditor'
 export { PreviewPane }  from './PreviewPane'
 export { ControlsPanel } from './ControlsPanel'
 export { Page }  from './Page'

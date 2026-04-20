@@ -78,6 +78,7 @@ function ExportButton({ pageCount }: ExportButtonProps) {
           disabled={isExporting}
           aria-haspopup="menu"
           aria-expanded={open}
+          suppressHydrationWarning
           className={clsx(
             'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-white',
             'transition-colors disabled:cursor-wait disabled:opacity-70',
@@ -112,6 +113,7 @@ function ExportButton({ pageCount }: ExportButtonProps) {
               <button
                 key={format}
                 role="menuitem"
+                suppressHydrationWarning
                 onClick={() => {
                   setOpen(false)
                   run(format, pageCount)
@@ -168,26 +170,9 @@ export function Navbar({ pageCount = 1 }: NavbarProps) {
             </span>
           </Link>
 
-          {/* Center nav */}
-          <nav className="hidden items-center gap-1 md:flex">
-            {['File', 'Edit', 'View', 'Insert'].map((item) => (
-              <button
-                key={item}
-                className="rounded-md px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
-              >
-                {item}
-              </button>
-            ))}
-          </nav>
-
-          {/* Right: quota + share + export */}
+          {/* Right: quota + export */}
           <div className="flex items-center gap-2">
             <QuotaCounter onLimitClick={() => setShowUpgrade(true)} />
-
-            <button className="rounded-md border border-gray-200 px-3 py-1.5 text-sm text-gray-700 transition-colors hover:bg-gray-50">
-              Share
-            </button>
-
             <ExportButton pageCount={pageCount} />
           </div>
         </div>

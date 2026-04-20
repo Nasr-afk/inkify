@@ -96,7 +96,7 @@ export function UpgradeModal({ open, onClose }: UpgradeModalProps) {
         >
           {/* Gradient header */}
           <div className="bg-gradient-to-br from-ink-600 to-ink-800 px-6 pt-8 pb-10">
-            <button
+            <button suppressHydrationWarning
               ref={closeRef}
               onClick={() => !isProcessing && onClose()}
               disabled={isProcessing}
@@ -152,7 +152,7 @@ export function UpgradeModal({ open, onClose }: UpgradeModalProps) {
               </p>
             )}
 
-            <button
+            <button suppressHydrationWarning
               onClick={startUpgrade}
               disabled={isProcessing || phase === 'success'}
               className={clsx(
@@ -174,7 +174,7 @@ export function UpgradeModal({ open, onClose }: UpgradeModalProps) {
             </button>
 
             {phase !== 'success' && (
-              <button
+              <button suppressHydrationWarning
                 onClick={() => !isProcessing && onClose()}
                 disabled={isProcessing}
                 className="w-full rounded-xl py-2.5 text-sm text-gray-400 transition-colors hover:text-gray-600 disabled:opacity-40"
@@ -185,7 +185,7 @@ export function UpgradeModal({ open, onClose }: UpgradeModalProps) {
 
             {/* Dev-only reset */}
             {process.env.NODE_ENV === 'development' && (
-              <button
+              <button suppressHydrationWarning
                 onClick={() => { resetUsage(); onClose() }}
                 className="w-full rounded py-1.5 text-[11px] text-gray-300 hover:text-gray-500"
               >

@@ -31,6 +31,7 @@ export function QuotaCounter({ onLimitClick }: QuotaCounterProps) {
       onClick={isAtLimit ? onLimitClick : undefined}
       title={isAtLimit ? 'Export limit reached — click to upgrade' : `${remaining} of ${FREE_LIMIT} free pages remaining`}
       aria-label={isAtLimit ? 'Export limit reached' : `${remaining} of ${FREE_LIMIT} export pages remaining`}
+      suppressHydrationWarning
       className={clsx(
         'flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-medium',
         'transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1',
