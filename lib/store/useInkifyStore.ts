@@ -1,4 +1,8 @@
-import { create } from 'zustand'
+import { create }           from 'zustand'
+import { generateId }        from '@/lib/utils'
+import type { PaperSize }   from '@/lib/paper'
+
+export type { PaperSize }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -15,36 +19,67 @@ export const FONT_SIZE_DEFAULT = 16
 
 export type PageStyle = 'plain' | 'ruled'
 
-export interface InkifyState {
-  text:      string
-  fontStyle: FontStyle
-  fontSize:  number    // px, clamped to FONT_SIZE_MIN–FONT_SIZE_MAX
-  inkColor:  string
-  messiness: number
-  pageStyle: PageStyle
+export interface Highlight {
+  id:    string
+  start: number   // char index in the raw text (selection offset)
+  end:   number   // exclusive
+  color: string   // CSS color
+}
 
-  setText:      (text:  string)    => void
-  setFontStyle: (style: FontStyle) => void
-  setFontSize:  (size:  number)    => void
-  setInkColor:  (color: string)    => void
-  setMessiness: (value: number)    => void
-  setPageStyle: (style: PageStyle) => void
+export interface InkifyState {
+  text:       string
+  fontStyle:  FontStyle
+  fontSize:   number
+  inkColor:   string
+  messiness:  number
+  inkBlur:      number    // 0–2 px, user-controlled blur on handwriting layer
+  textOffsetX:  number    // px, horizontal shift of the text block (-60–60)
+  textOffsetY:  number    // px, vertical shift of the text block (-60–60)
+  paperSize:    PaperSize
+  pageStyle:    PageStyle
+  highlights:   Highlight[]
+
+  setText:         (text:  string)              => void
+  setFontStyle:    (style: FontStyle)           => void
+  setFontSize:     (size:  number)              => void
+  setInkColor:     (color: string)              => void
+  setMessiness:    (value: number)              => void
+  setInkBlur:      (value: number)              => void
+  setTextOffsetX:  (value: number)              => void
+  setTextOffsetY:  (value: number)              => void
+  resetTextOffset: ()                           => void
+  setPaperSize:    (size: PaperSize)            => void
+  setPageStyle:    (style: PageStyle)           => void
+  addHighlight:    (h: Omit<Highlight, 'id'>)   => void
+  removeHighlight: (id: string)                 => void
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useInkifyStore = create<InkifyState>((set) => ({
-  text:      '',
-  fontStyle: 'handwriting',
-  fontSize:  FONT_SIZE_DEFAULT,
-  inkColor:  '#1a1a2e',
-  messiness: 20,
-  pageStyle: 'ruled',
+  text:       '',
+  fontStyle:  'handwriting',
+  fontSize:   FONT_SIZE_DEFAULT,
+  inkColor:   '#1a1a2e',
+  messiness:  20,
+  inkBlur:      0.2,
+  textOffsetX:  0,
+  textOffsetY:  0,
+  paperSize:    'a4' as PaperSize,
+  pageStyle:    'ruled',
+  highlights: [],
 
-  setText:      (text)  => set({ text }),
-  setFontStyle: (style) => set({ fontStyle: style }),
-  setFontSize:  (size)  => set({ fontSize: Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, size)) }),
-  setInkColor:  (color) => set({ inkColor: color }),
-  setMessiness: (value) => set({ messiness: value }),
-  setPageStyle: (style) => set({ pageStyle: style }),
+  setText:         (text)  => set({ text }),
+  setFontStyle:    (style) => set({ fontStyle: style }),
+  setFontSize:     (size)  => set({ fontSize: Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, size)) }),
+  setInkColor:     (color) => set({ inkColor: color }),
+  setMessiness:    (value) => set({ messiness: value }),
+  setInkBlur:      (value) => set({ inkBlur: Math.min(2, Math.max(0, value)) }),
+  setTextOffsetX:  (value) => set({ textOffsetX: Math.min(60, Math.max(-60, value)) }),
+  setTextOffsetY:  (value) => set({ textOffsetY: Math.min(60, Math.max(-60, value)) }),
+  resetTextOffset: ()      => set({ textOffsetX: 0, textOffsetY: 0 }),
+  setPaperSize:    (size)  => set({ paperSize: size }),
+  setPageStyle:    (style) => set({ pageStyle: style }),
+  addHighlight:    (h)     => set((s) => ({ highlights: [...s.highlights, { ...h, id: generateId() }] })),
+  removeHighlight: (id)    => set((s) => ({ highlights: s.highlights.filter((h) => h.id !== id) })),
 }))

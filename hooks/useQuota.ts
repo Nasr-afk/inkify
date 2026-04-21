@@ -38,12 +38,8 @@ function derive(used: number, plan: Plan): QuotaStatus {
 }
 
 export function useQuota(): QuotaStatus {
-  const [used, setUsed] = useState<number>(() =>
-    typeof window === 'undefined' ? 0 : getUsage()
-  )
-  const [plan, setPlanState] = useState<Plan>(() =>
-    typeof window === 'undefined' ? 'free' : getPlan()
-  )
+  const [used, setUsed] = useState<number>(0)
+  const [plan, setPlanState] = useState<Plan>('free')
 
   useEffect(() => {
     setUsed(getUsage())

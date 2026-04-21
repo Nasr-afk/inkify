@@ -31,10 +31,16 @@ export interface HandwritingOptions {
   fontSize?:   string
   /** CSS line-height. Default: 1.9 */
   lineHeight?: string | number
-  /**
-   * Global char index offset for this page slice. Default: 0
-   */
+  /** Global char index offset for this page slice. Default: 0 */
   charIndexOffset?: number
+  /** Hex color of the paper surface — blends ink color slightly toward it. Default: none */
+  paperColor?: string
+  /** Base blur in px applied to the handwriting layer (synced with messiness). Default: 0.2 */
+  blur?: number
+  /** Active highlights — applied as background-color to matching character spans */
+  highlights?: ReadonlyArray<{ start: number; end: number; color: string }>
+  /** String offset of this page's text within the full document (from paginator.charOffset) */
+  pageStringOffset?: number
 }
 
 // ─── Internal types ───────────────────────────────────────────────────────────
@@ -61,6 +67,61 @@ type Token =
   | { kind: 'char';    value: string; charIdx: number; seqIdx: number }
   | { kind: 'space';   charIdx: number; seqIdx: number }
   | { kind: 'newline'; seqIdx: number }
+
+// ─── Color utilities ──────────────────────────────────────────────────────────
+
+function parseHexColor(hex: string): [number, number, number] | null {
+  const s = hex.trim().replace(/^#/, '')
+  if (s.length === 3) {
+    return [parseInt(s[0]+s[0], 16), parseInt(s[1]+s[1], 16), parseInt(s[2]+s[2], 16)]
+  }
+  if (s.length === 6) {
+    return [parseInt(s.slice(0,2), 16), parseInt(s.slice(2,4), 16), parseInt(s.slice(4,6), 16)]
+  }
+  return null
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return '#' + [r, g, b]
+    .map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/**
+ * Sanitise inkColor for realistic handwriting:
+ *   - Pure black (#000) → dark navy ink (#1a1a2e) — no laser-black strokes
+ *   - Blend 7% toward paper colour so ink reads as sitting on the surface
+ */
+function resolveInkColor(inkColor: string, paperColor?: string): string {
+  const rgb = parseHexColor(inkColor)
+  if (!rgb) return inkColor
+
+  let [r, g, b] = rgb
+  if (r === 0 && g === 0 && b === 0) { r = 26; g = 26; b = 46 }
+
+  if (paperColor) {
+    const paper = parseHexColor(paperColor)
+    if (paper) {
+      const t = 0.07
+      r = r + (paper[0] - r) * t
+      g = g + (paper[1] - g) * t
+      b = b + (paper[2] - b) * t
+    }
+  }
+
+  return rgbToHex(r, g, b)
+}
+
+/**
+ * CSS textShadow that simulates ink feathering into paper fibres.
+ * Two-layer: tight core spread + soft outer bleed.
+ */
+function buildInkSpread(hexColor: string): string {
+  const rgb = parseHexColor(hexColor)
+  if (!rgb) return 'none'
+  const [r, g, b] = rgb
+  return `0 0 0.5px rgba(${r},${g},${b},0.28), 0 0 1.5px rgba(${r},${g},${b},0.10)`
+}
 
 // ─── PRNG ─────────────────────────────────────────────────────────────────────
 
@@ -103,7 +164,7 @@ function computeLocal(charIdx: number, m: number): LocalTransform {
     rotate:  r() * 2.5  * m,
     scaleX:  1 + r() * 0.025 * m,
     scaleY:  1 + r() * 0.035 * m,
-    opacity: 1 - rng() * 0.12  * m,
+    opacity: 0.87 + rng() * 0.10,   // 0.87–0.97: natural ink is never fully opaque
     microX:  r() * 1.2  * m,
     microY:  r() * 1.8  * m,
   }
@@ -289,9 +350,15 @@ export function renderHandwriting(
     fontSize         = '15px',
     lineHeight       = 1.9,
     charIndexOffset  = 0,
+    paperColor,
+    highlights,
+    pageStringOffset = 0,
   } = options
 
   if (!text) return []
+
+  const resolvedColor = resolveInkColor(inkColor, paperColor)
+  const inkSpread     = buildInkSpread(resolvedColor)
 
   const m      = Math.max(0, Math.min(100, messiness)) / 100
   const tokens = tokenise(text)
@@ -310,16 +377,19 @@ export function renderHandwriting(
 
     // ── Space → width-variable non-collapsing span ─────────────────────────
     if (tok.kind === 'space') {
+      const gPos      = pageStringOffset + tok.seqIdx
+      const hlSpace   = highlights?.find((h) => gPos >= h.start && gPos < h.end)
       nodes.push(
         React.createElement('span', {
           key:   `sp-${tok.seqIdx}`,
           style: {
-            display:     'inline-block',
-            position:    'relative' as const,
-            width:       `${ctx.spaceWidth.toFixed(4)}em`,
-            minWidth:    '0.15em',
+            display:         'inline-block',
+            position:        'relative' as const,
+            width:           `${ctx.spaceWidth.toFixed(4)}em`,
+            minWidth:        '0.15em',
             fontFamily,
             fontSize,
+            backgroundColor: hlSpace?.color,
           },
         }, '\u00A0')
       )
@@ -327,23 +397,24 @@ export function renderHandwriting(
     }
 
     // ── Printable character ────────────────────────────────────────────────
-    const local = computeLocal(tok.charIdx + charIndexOffset, m)
+    const gPos   = pageStringOffset + tok.seqIdx
+    const hl     = highlights?.find((h) => gPos >= h.start && gPos < h.end)
+    const local  = computeLocal(tok.charIdx + charIndexOffset, m)
 
     const style: React.CSSProperties = {
-      display:     'inline-block',
-      position:    'relative',
+      display:         'inline-block',
+      position:        'relative',
       fontFamily,
       fontSize,
       lineHeight,
-      color:       inkColor,
-      transform:   buildTransform(local, ctx),
-      opacity:     local.opacity,
-      // Cluster spacing — marginRight shifts each character's gap
-      marginRight: `${ctx.letterGap.toFixed(3)}px`,
-      // Smooth color/opacity transitions; intentionally exclude transform
-      // (we don't want characters to animate as the user types)
-      transition:  'color 0.25s ease, opacity 0.25s ease',
-      // Prevent browser ligatures from bridging adjacent spans
+      color:           resolvedColor,
+      transform:       buildTransform(local, ctx),
+      opacity:         local.opacity,
+      textShadow:      hl ? 'none' : inkSpread,   // skip spread under highlight
+      marginRight:     `${ctx.letterGap.toFixed(3)}px`,
+      transition:      'color 0.25s ease, opacity 0.25s ease',
+      backgroundColor: hl?.color,
+      borderRadius:    hl ? '1px' : undefined,
       fontVariantLigatures: 'none' as const,
     }
 

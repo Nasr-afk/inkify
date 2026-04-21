@@ -1,12 +1,13 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useEditor }                  from '@/hooks/useEditor'
 import { useDebounce }                from '@/hooks/useDebounce'
 import { useContainerWidth }          from '@/hooks/useContainerWidth'
 import { paginateText }               from '@/lib/paginator'
-import { Page, PAGE_WIDTH, PAGE_HEIGHT } from './Page'
+import { Page }                        from './Page'
 import { prewarmEngine }              from '@/lib/handwritingEngine'
+import { getPaper }                   from '@/lib/paper'
 import type { HandwritingOptions }    from '@/lib/handwritingEngine'
 import type { PageSlice }             from '@/lib/paginator'
 import { clsx }                       from 'clsx'
@@ -27,8 +28,14 @@ interface PreviewPaneProps {
 }
 
 export function PreviewPane({ onPageCountChange }: PreviewPaneProps) {
-  const { text, setText, fontStyle, fontSize, fontFamily, inkColor, messiness, pageStyle } = useEditor()
+  const {
+    text, setText, fontStyle, fontSize, fontFamily, inkColor, messiness, inkBlur, pageStyle,
+    textOffsetX, textOffsetY, setTextOffsetX, setTextOffsetY, paperSize,
+    highlights, addHighlight, removeHighlight,
+  } = useEditor()
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel | 'fit'>('fit')
+
+  const paper = useMemo(() => getPaper(paperSize), [paperSize])
 
   const { debounced: debouncedText, isPending } = useDebounce(text, 300)
   const stalePagesRef = useRef<PageSlice[]>([])
@@ -41,30 +48,40 @@ export function PreviewPane({ onPageCountChange }: PreviewPaneProps) {
   // fixed levels = use as-is
   const scale = useMemo(() => {
     if (!containerWidth) return 1
-    const maxFit = Math.min(1, (containerWidth - CONTAINER_PADDING) / PAGE_WIDTH)
+    const maxFit = Math.min(1, (containerWidth - CONTAINER_PADDING) / paper.width)
     if (zoomLevel === 'fit') return maxFit
     return zoomLevel
   }, [containerWidth, zoomLevel])
 
   // ── Paginate ──────────────────────────────────────────────────────────────
   const freshPages = useMemo<PageSlice[]>(
-    () => paginateText(debouncedText, { fontStyle, fontSize, lineHeight: 1.9 }),
-    [debouncedText, fontStyle, fontSize]
+    () => paginateText(debouncedText, {
+      fontStyle, fontSize, lineHeight: 1.9,
+      pageWidth:    paper.width,
+      pageHeight:   paper.height,
+      marginTop:    paper.marginTop,
+      marginBottom: paper.marginBottom,
+      marginLeft:   paper.marginLeft,
+      marginRight:  paper.marginRight,
+    }),
+    [debouncedText, fontStyle, fontSize, paper]
   )
 
   if (freshPages.length > 0) stalePagesRef.current = freshPages
   const pages = freshPages.length > 0 ? freshPages : stalePagesRef.current
 
-  if (freshPages.length > 0) onPageCountChange?.(freshPages.length)
+  useEffect(() => {
+    if (freshPages.length > 0) onPageCountChange?.(freshPages.length)
+  }, [freshPages.length, onPageCountChange])
 
   // ── Stable handwriting options ────────────────────────────────────────────
   const hwOptions = useMemo<HandwritingOptions>(
-    () => ({ messiness, inkColor, fontFamily, fontSize: `${fontSize}px`, lineHeight: 1.9 }),
-    [messiness, inkColor, fontFamily, fontSize]
+    () => ({ messiness, inkColor, fontFamily, fontSize: `${fontSize}px`, lineHeight: 1.9, paperColor: '#ffffff', blur: inkBlur }),
+    [messiness, inkColor, fontFamily, fontSize, inkBlur]
   )
 
   // Scaled page height — used to size the wrapper so pages stack correctly
-  const scaledPageHeight = PAGE_HEIGHT * scale
+  const scaledPageHeight = paper.height * scale
 
   return (
     <div className="relative flex h-full flex-col">
@@ -87,7 +104,7 @@ export function PreviewPane({ onPageCountChange }: PreviewPaneProps) {
             <div
               key={page.pageIndex}
               style={{
-                width:      PAGE_WIDTH * scale,
+                width:      paper.width * scale,
                 height:     scaledPageHeight,
                 flexShrink: 0,
                 position:   'relative',
@@ -98,8 +115,8 @@ export function PreviewPane({ onPageCountChange }: PreviewPaneProps) {
                   position:        'absolute',
                   top:             0,
                   left:            0,
-                  width:           PAGE_WIDTH,
-                  height:          PAGE_HEIGHT,
+                  width:           paper.width,
+                  height:          paper.height,
                   transform:       `scale(${scale})`,
                   transformOrigin: 'top left',
                 }}
@@ -114,6 +131,17 @@ export function PreviewPane({ onPageCountChange }: PreviewPaneProps) {
                   editable={page.pageIndex === 0}
                   rawText={page.pageIndex === 0 ? text : undefined}
                   onTextChange={page.pageIndex === 0 ? setText : undefined}
+                  highlights={highlights}
+                  pageStringOffset={page.charOffset}
+                  onAddHighlight={(start, end, color) => addHighlight({ start, end, color })}
+                  onRemoveHighlight={removeHighlight}
+                  paperDimensions={paper}
+                  textOffsetX={textOffsetX}
+                  textOffsetY={textOffsetY}
+                  onShift={(dx, dy) => {
+                    setTextOffsetX(textOffsetX + dx)
+                    setTextOffsetY(textOffsetY + dy)
+                  }}
                 />
               </div>
             </div>
