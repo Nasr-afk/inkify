@@ -1,5 +1,5 @@
-import { SplitWorkspace } from '@/components/editor/SplitWorkspace'
+import { Editor } from '@/components/editor/Editor'
 
 export default function Home() {
-  return <SplitWorkspace />
+  return <Editor />
 }

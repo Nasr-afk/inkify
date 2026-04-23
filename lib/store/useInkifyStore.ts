@@ -1,6 +1,6 @@
 import { create }           from 'zustand'
 import { generateId }        from '@/lib/utils'
-import type { PaperSize }   from '@/lib/paper'
+import type { PaperSize }   from '@/lib/paperEngine'
 
 export type { PaperSize }
 

@@ -5,9 +5,9 @@ import { useEditor }                  from '@/hooks/useEditor'
 import { useDebounce }                from '@/hooks/useDebounce'
 import { useContainerWidth }          from '@/hooks/useContainerWidth'
 import { paginateText }               from '@/lib/paginator'
-import { Page }                        from './Page'
+import { Paper }                       from './Paper'
 import { prewarmEngine }              from '@/lib/handwritingEngine'
-import { getPaper }                   from '@/lib/paper'
+import { getPaper }                   from '@/lib/paperEngine'
 import type { HandwritingOptions }    from '@/lib/handwritingEngine'
 import type { PageSlice }             from '@/lib/paginator'
 import { clsx }                       from 'clsx'
@@ -121,7 +121,7 @@ export function PreviewPane({ onPageCountChange }: PreviewPaneProps) {
                   transformOrigin: 'top left',
                 }}
               >
-                <Page
+                <Paper
                   text={page.text}
                   charOffset={page.charOffset}
                   pageIndex={page.pageIndex}
