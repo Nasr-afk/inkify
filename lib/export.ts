@@ -16,7 +16,7 @@
  * without this module knowing anything about React state.
  */
 
-import { PAGE_WIDTH, PAGE_HEIGHT } from '@/components/editor/Page'
+import { PAGE_WIDTH, PAGE_HEIGHT } from '@/components/editor/Paper'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,17 +52,39 @@ function collectPageElements(): HTMLElement[] {
  */
 async function captureElement(el: HTMLElement): Promise<HTMLCanvasElement> {
   const html2canvas = (await import('html2canvas')).default
-  return html2canvas(el, {
-    scale:          2,
+  if (typeof document !== 'undefined' && document.fonts?.ready) {
+    await document.fonts.ready
+  }
+  const rect = el.getBoundingClientRect()
+  const exportWidth = Math.max(1, Math.round(rect.width))
+  const exportHeight = Math.max(1, Math.round(rect.height))
+  const captured = await html2canvas(el, {
+    scale:          Math.max(2, Math.ceil((typeof window !== 'undefined' ? window.devicePixelRatio : 1) * 1.75)),
     useCORS:        true,
     logging:        false,
-    backgroundColor: '#ffffff',
+    backgroundColor: null,
+    foreignObjectRendering: true,
+    removeContainer: true,
+    scrollX: 0,
+    scrollY: 0,
     // Explicitly set dimensions so html2canvas doesn't read scrolled viewports
-    width:  PAGE_WIDTH,
-    height: PAGE_HEIGHT,
-    windowWidth:  PAGE_WIDTH,
-    windowHeight: PAGE_HEIGHT,
+    width: exportWidth,
+    height: exportHeight,
+    windowWidth: exportWidth,
+    windowHeight: exportHeight,
   })
+
+  const isPrintMode = el.dataset.printMode === '1'
+  if (!isPrintMode) return captured
+
+  const tuned = document.createElement('canvas')
+  tuned.width = captured.width
+  tuned.height = captured.height
+  const ctx = tuned.getContext('2d')
+  if (!ctx) return captured
+  ctx.filter = 'saturate(0.92) contrast(0.95) blur(0.15px)'
+  ctx.drawImage(captured, 0, 0)
+  return tuned
 }
 
 // ─── PDF export ───────────────────────────────────────────────────────────────
@@ -91,22 +113,26 @@ export async function exportToPdf(opts: ExportOptions = {}): Promise<void> {
     // Second pass: assemble PDF
     report({ phase: 'generating' })
 
+    const firstRect = pages[0].getBoundingClientRect()
+    const pdfWidth = Math.max(1, Math.round(firstRect.width)) || PAGE_WIDTH
+    const pdfHeight = Math.max(1, Math.round(firstRect.height)) || PAGE_HEIGHT
+
     const doc = new jsPDF({
       orientation: 'portrait',
       unit:        'px',
-      format:      [PAGE_WIDTH, PAGE_HEIGHT],
+      format:      [pdfWidth, pdfHeight],
       compress:    true,
     })
 
     for (let i = 0; i < canvases.length; i++) {
-      if (i > 0) doc.addPage([PAGE_WIDTH, PAGE_HEIGHT], 'portrait')
+      if (i > 0) doc.addPage([pdfWidth, pdfHeight], 'portrait')
 
       const canvas  = canvases[i]
-      const imgData = canvas.toDataURL('image/jpeg', 0.95)  // JPEG for smaller file
+      const imgData = canvas.toDataURL('image/png')
 
       // addImage(data, format, x, y, width, height)
       // Canvas is 2× — map back to physical px
-      doc.addImage(imgData, 'JPEG', 0, 0, PAGE_WIDTH, PAGE_HEIGHT)
+      doc.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight)
     }
 
     doc.save(`${filename}.pdf`)

@@ -27,6 +27,11 @@ export interface FontDef {
   googleName: string | null
   /** Average character width at 15px — used by paginator for line wrapping */
   avgCharWidth: number
+  /** File in /public/fonts for local registration */
+  localSource?: string
+  /** Per-font multipliers for realism tuning */
+  sizeMultiplier?: number
+  spacingMultiplier?: number
 }
 
 export const FONTS: FontDef[] = [
@@ -36,6 +41,8 @@ export const FONTS: FontDef[] = [
     family:       'Georgia, "Times New Roman", serif',
     googleName:   null,   // system font — no load needed
     avgCharWidth: 7.8,
+    sizeMultiplier: 1,
+    spacingMultiplier: 1,
   },
   {
     value:        'sans-serif',
@@ -43,6 +50,8 @@ export const FONTS: FontDef[] = [
     family:       '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     googleName:   null,
     avgCharWidth: 7.3,
+    sizeMultiplier: 1,
+    spacingMultiplier: 1,
   },
   {
     value:        'monospace',
@@ -50,6 +59,8 @@ export const FONTS: FontDef[] = [
     family:       '"SF Mono", "Fira Code", Consolas, monospace',
     googleName:   null,
     avgCharWidth: 9.0,
+    sizeMultiplier: 1,
+    spacingMultiplier: 1,
   },
   {
     value:        'cursive',
@@ -57,13 +68,38 @@ export const FONTS: FontDef[] = [
     family:       '"Caveat", "Brush Script MT", cursive',
     googleName:   'Caveat',
     avgCharWidth: 8.4,
+    sizeMultiplier: 1.02,
+    spacingMultiplier: 1.03,
   },
   {
     value:        'handwriting',
     label:        'Handwriting',
-    family:       '"Patrick Hand", "Segoe Script", cursive',
+    family:       '"Inkify Patrick Hand", "Patrick Hand", "Segoe Script", cursive',
     googleName:   'Patrick+Hand',
     avgCharWidth: 8.6,
+    localSource:  '/fonts/PatrickHand-Regular.ttf',
+    sizeMultiplier: 1.04,
+    spacingMultiplier: 1.05,
+  },
+  {
+    value:        'inkify-pen',
+    label:        'Inkify Pen',
+    family:       '"Inkify Pen", "Inkify Patrick Hand", "Patrick Hand", cursive',
+    googleName:   null,
+    avgCharWidth: 8.8,
+    localSource:  '/fonts/InkifyPen-Regular.ttf',
+    sizeMultiplier: 1.02,
+    spacingMultiplier: 1.04,
+  },
+  {
+    value:        'inkify-marker',
+    label:        'Inkify Marker',
+    family:       '"Inkify Marker", "Segoe Print", "Comic Sans MS", cursive',
+    googleName:   null,
+    avgCharWidth: 9.1,
+    localSource:  '/fonts/InkifyMarker-Regular.ttf',
+    sizeMultiplier: 0.98,
+    spacingMultiplier: 1.02,
   },
 ]
 
@@ -82,3 +118,25 @@ export function getFontFamily(style: FontStyle): string {
 export const GOOGLE_FONT_NAMES = FONTS
   .map((f) => f.googleName)
   .filter((n): n is string => n !== null)
+
+let didRegisterLocalFonts = false
+
+export async function registerLocalFonts(): Promise<void> {
+  if (didRegisterLocalFonts || typeof window === 'undefined' || !('FontFace' in window)) return
+  didRegisterLocalFonts = true
+
+  const tasks = FONTS
+    .filter((font) => font.localSource)
+    .map(async (font) => {
+      const localFaceName = font.family.split(',')[0].trim().replace(/^"|"$/g, '')
+      try {
+        const face = new FontFace(localFaceName, `url(${font.localSource})`, { style: 'normal', weight: '400' })
+        await face.load()
+        document.fonts.add(face)
+      } catch {
+        // Keep fallback family chain if local file is not present.
+      }
+    })
+
+  await Promise.all(tasks)
+}

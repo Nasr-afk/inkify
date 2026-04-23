@@ -1,5 +1,4 @@
 export { Editor }                    from './Editor'
-export { PreviewPane }               from './PreviewPane'
 export { Controls }                  from './Controls'
 export { Paper }                     from './Paper'
 export type { PaperProps }           from './Paper'

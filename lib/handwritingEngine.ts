@@ -39,8 +39,12 @@ export interface HandwritingOptions {
   blur?: number
   /** Active highlights — applied as background-color to matching character spans */
   highlights?: ReadonlyArray<{ start: number; end: number; color: string }>
+  /** Active blur ranges */
+  blurRanges?: ReadonlyArray<{ start: number; end: number; amount: number }>
   /** String offset of this page's text within the full document (from paginator.charOffset) */
   pageStringOffset?: number
+  /** Simulate printed/scanned handwriting */
+  printMode?: boolean
 }
 
 // ─── Internal types ───────────────────────────────────────────────────────────
@@ -61,6 +65,7 @@ interface SeqContext {
   letterGap:    number  // px  cluster-based extra letter-spacing
   spaceWidth:   number  // em  randomised word-space width
   lineOffsetX:  number  // px  horizontal nudge after a line break
+  lineRotate:   number  // deg tiny line-level slope variance
 }
 
 type Token =
@@ -121,6 +126,18 @@ function buildInkSpread(hexColor: string): string {
   if (!rgb) return 'none'
   const [r, g, b] = rgb
   return `0 0 0.5px rgba(${r},${g},${b},0.28), 0 0 1.5px rgba(${r},${g},${b},0.10)`
+}
+
+function varyInkTone(hexColor: string, n: number): string {
+  const rgb = parseHexColor(hexColor)
+  if (!rgb) return hexColor
+  const drift = (Math.sin(n * 0.37) * 0.5 + Math.cos(n * 0.19) * 0.5) * 8
+  return rgbToHex(rgb[0] + drift, rgb[1] + drift * 0.6, rgb[2] + drift * 0.3)
+}
+
+function wordBlurVariance(wordIndex: number, messiness01: number): number {
+  const wave = Math.sin(wordIndex * 0.63) * 0.5 + Math.cos(wordIndex * 0.21) * 0.5
+  return Math.max(0, (wave + 1) * 0.5 * 0.12 * messiness01)
 }
 
 // ─── PRNG ─────────────────────────────────────────────────────────────────────
@@ -227,6 +244,7 @@ function computeSequentialContexts(tokens: Token[], m: number): Map<number, SeqC
   let cumulativeDrift = 0   // random walk, px
   let lineOffsetX     = 0   // horizontal nudge for current line, px
   let lineBaselineY   = 0   // per-line baseline nudge, px
+  let lineRotate      = signed(lineRng) * 0.10 * m
   let seqCounter      = 0   // counts all tokens for wave phase
 
   for (let i = 0; i < tokens.length; i++) {
@@ -237,12 +255,14 @@ function computeSequentialContexts(tokens: Token[], m: number): Map<number, SeqC
       // Each new line starts with a slightly different baseline and indent.
       lineOffsetX  = signed(lineRng) * 3  * m    // ±3px horizontal offset
       lineBaselineY = signed(lineRng) * 1  * m   // ±1px line baseline shift
+      lineRotate    = signed(lineRng) * 0.18 * m // subtle line slope variation
       cumulativeDrift *= 0.4                      // drift partially resets at newline
       out.set(tok.seqIdx, {
         baselineY:   0,
         letterGap:   0,
         spaceWidth:  0,
         lineOffsetX: lineOffsetX,
+        lineRotate,
       })
       continue
     }
@@ -257,6 +277,7 @@ function computeSequentialContexts(tokens: Token[], m: number): Map<number, SeqC
         letterGap:   0,
         spaceWidth:  0.3 + variation,
         lineOffsetX: 0,
+        lineRotate,
       })
       seqCounter++
       continue
@@ -282,6 +303,7 @@ function computeSequentialContexts(tokens: Token[], m: number): Map<number, SeqC
       letterGap,
       spaceWidth:  0,
       lineOffsetX: lineOffsetX,
+      lineRotate,
     })
 
     seqCounter++
@@ -320,9 +342,10 @@ function tokenise(text: string): Token[] {
 function buildTransform(local: LocalTransform, seq: SeqContext): string {
   const x = local.microX + seq.lineOffsetX
   const y = local.microY + seq.baselineY
+  const rot = local.rotate + seq.lineRotate
   return [
     `translate(${x.toFixed(3)}px, ${y.toFixed(3)}px)`,
-    `rotate(${local.rotate.toFixed(3)}deg)`,
+    `rotate(${rot.toFixed(3)}deg)`,
     `scale(${local.scaleX.toFixed(4)}, ${local.scaleY.toFixed(4)})`,
   ].join(' ')
 }
@@ -352,7 +375,9 @@ export function renderHandwriting(
     charIndexOffset  = 0,
     paperColor,
     highlights,
+    blurRanges,
     pageStringOffset = 0,
+    printMode = false,
   } = options
 
   if (!text) return []
@@ -364,6 +389,7 @@ export function renderHandwriting(
   const tokens = tokenise(text)
   const seqCtx = computeSequentialContexts(tokens, m)
   const nodes: React.ReactNode[] = []
+  let wordIndex = 0
 
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i]
@@ -371,12 +397,14 @@ export function renderHandwriting(
 
     // ── Newline → <br> ─────────────────────────────────────────────────────
     if (tok.kind === 'newline') {
+      wordIndex++
       nodes.push(React.createElement('br', { key: `br-${tok.seqIdx}` }))
       continue
     }
 
     // ── Space → width-variable non-collapsing span ─────────────────────────
     if (tok.kind === 'space') {
+      wordIndex++
       const gPos      = pageStringOffset + tok.seqIdx
       const hlSpace   = highlights?.find((h) => gPos >= h.start && gPos < h.end)
       nodes.push(
@@ -399,7 +427,11 @@ export function renderHandwriting(
     // ── Printable character ────────────────────────────────────────────────
     const gPos   = pageStringOffset + tok.seqIdx
     const hl     = highlights?.find((h) => gPos >= h.start && gPos < h.end)
+    const blurMark = blurRanges?.find((r) => gPos >= r.start && gPos < r.end)
     const local  = computeLocal(tok.charIdx + charIndexOffset, m)
+    const dynamicInkColor = varyInkTone(resolvedColor, tok.seqIdx)
+    const naturalWordBlur = wordBlurVariance(wordIndex, m)
+    const effectiveColor = printMode ? resolveInkColor(dynamicInkColor, '#b8b6b0') : dynamicInkColor
 
     const style: React.CSSProperties = {
       display:         'inline-block',
@@ -407,14 +439,17 @@ export function renderHandwriting(
       fontFamily,
       fontSize,
       lineHeight,
-      color:           resolvedColor,
+      color:           effectiveColor,
       transform:       buildTransform(local, ctx),
-      opacity:         local.opacity,
+      opacity:         printMode ? Math.max(0.74, local.opacity - 0.10) : local.opacity,
       textShadow:      hl ? 'none' : inkSpread,   // skip spread under highlight
       marginRight:     `${ctx.letterGap.toFixed(3)}px`,
       transition:      'color 0.25s ease, opacity 0.25s ease',
       backgroundColor: hl?.color,
       borderRadius:    hl ? '1px' : undefined,
+      filter:          blurMark
+        ? `blur(${blurMark.amount.toFixed(2)}px)`
+        : (naturalWordBlur > 0 ? `blur(${(naturalWordBlur + (printMode ? 0.06 : 0)).toFixed(2)}px)` : (printMode ? 'blur(0.05px)' : undefined)),
       fontVariantLigatures: 'none' as const,
     }
 

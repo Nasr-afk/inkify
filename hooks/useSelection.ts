@@ -2,7 +2,7 @@
 
 import { useState, useEffect }  from 'react'
 import type { RefObject }        from 'react'
-import type { Highlight }        from '@/lib/store'
+import type { Highlight, BlurRange }        from '@/lib/store'
 
 export type ToolbarPos = { top: number; left: number; start: number; end: number }
 
@@ -10,16 +10,22 @@ interface UseSelectionOptions {
   editableRef:        RefObject<HTMLDivElement>
   pageRef:            RefObject<HTMLDivElement>
   highlights?:        Highlight[]
+  blurRanges?:        BlurRange[]
   onAddHighlight?:    (start: number, end: number, color: string) => void
   onRemoveHighlight?: (id: string) => void
+  onAddBlur?:         (start: number, end: number, amount: number) => void
+  onRemoveBlur?:      (id: string) => void
 }
 
 export function useSelection({
   editableRef,
   pageRef,
   highlights,
+  blurRanges,
   onAddHighlight,
   onRemoveHighlight,
+  onAddBlur,
+  onRemoveBlur,
 }: UseSelectionOptions) {
   const [toolbarPos, setToolbarPos] = useState<ToolbarPos | null>(null)
 
@@ -82,5 +88,22 @@ export function useSelection({
     setToolbarPos(null)
   }
 
-  return { toolbarPos, setToolbarPos, handleSelectionChange, handleAddHighlight, handleClearHighlight }
+  function handleAddBlur(amount = 1) {
+    if (!toolbarPos) return
+    onAddBlur?.(toolbarPos.start, toolbarPos.end, amount)
+    window.getSelection()?.removeAllRanges()
+    setToolbarPos(null)
+  }
+
+  function handleClearBlur() {
+    if (!toolbarPos || !blurRanges) return
+    const { start, end } = toolbarPos
+    blurRanges
+      .filter((r) => r.start < end && r.end > start)
+      .forEach((r) => onRemoveBlur?.(r.id))
+    window.getSelection()?.removeAllRanges()
+    setToolbarPos(null)
+  }
+
+  return { toolbarPos, setToolbarPos, handleSelectionChange, handleAddHighlight, handleClearHighlight, handleAddBlur, handleClearBlur }
 }

@@ -2,9 +2,11 @@
 
 import { useEditor }             from '@/hooks/useEditor'
 import { FONTS }                  from '@/lib/fonts'
-import { FONT_SIZE_MIN, FONT_SIZE_MAX } from '@/lib/store'
+import { FONT_SIZE_MIN, FONT_SIZE_MAX, TEXT_OFFSET_MIN, TEXT_OFFSET_MAX } from '@/lib/store'
 import type { PaperSize }         from '@/lib/paperEngine'
+import { BACKGROUNDS }            from '@/lib/backgrounds'
 import { clsx }                   from 'clsx'
+import { useState }               from 'react'
 
 const PAPER_OPTIONS: { value: PaperSize; label: string }[] = [
   { value: 'a4',     label: 'A4'  },
@@ -44,14 +46,17 @@ const STEP = 8
 export function Controls() {
   const {
     fontStyle, fontSize, inkColor, messiness, inkBlur, pageStyle, paperSize,
+    customBackground, backgroundPreset, customBackgroundImage, printMode,
     textOffsetX, textOffsetY,
     setFontStyle, setFontSize, setInkColor, setMessiness, setInkBlur, setPageStyle, setPaperSize,
-    setTextOffsetX, setTextOffsetY, resetTextOffset,
+    setCustomBackground, setBackgroundPreset, setCustomBackgroundImage, setPrintMode,
+    shiftTextOffset, resetTextOffset,
   } = useEditor()
+  const [showRealism, setShowRealism] = useState(false)
+  const [showLayout, setShowLayout] = useState(false)
 
   function shift(dx: number, dy: number) {
-    setTextOffsetX(textOffsetX + dx)
-    setTextOffsetY(textOffsetY + dy)
+    shiftTextOffset(dx, dy)
   }
 
   return (
@@ -156,46 +161,25 @@ export function Controls() {
 
       <div className="hidden h-10 w-px bg-gray-100 lg:block" />
 
-      {/* ── Page lines ─────────────────────────────────────────────────── */}
+      {/* ── Background ─────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-1.5">
         <label className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
-          Lines
+          Background
         </label>
         <div className="flex items-center rounded-md border border-gray-200 text-[11px]">
-          {(['ruled', 'plain'] as const).map((style, i) => (
-            <button suppressHydrationWarning
-              key={style}
-              onClick={() => setPageStyle(style)}
-              className={clsx(
-                'px-2.5 py-1 capitalize transition-colors',
-                i === 0 ? 'rounded-l-md' : 'rounded-r-md border-l border-gray-200',
-                pageStyle === style
-                  ? 'bg-ink-50 text-ink-600'
-                  : 'text-gray-400 hover:bg-gray-50 hover:text-gray-600'
-              )}
-            >
-              {style}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="hidden h-10 w-px bg-gray-100 lg:block" />
-
-      {/* ── Paper size ─────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <label className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
-          Paper
-        </label>
-        <div className="flex items-center rounded-md border border-gray-200 text-[11px]">
-          {PAPER_OPTIONS.map(({ value, label }, i) => (
+          {BACKGROUNDS.map(({ value, label }, i) => (
             <button suppressHydrationWarning
               key={value}
-              onClick={() => setPaperSize(value)}
+              onClick={() => {
+                setBackgroundPreset(value)
+                if (value === 'notebook-page') setPageStyle('ruled')
+                if (value === 'plain-paper') setPageStyle('plain')
+                if (value === 'exam-sheet') setPageStyle('plain')
+              }}
               className={clsx(
-                'px-2.5 py-1 transition-colors',
-                i === 0 ? 'rounded-l-md' : i === PAPER_OPTIONS.length - 1 ? 'rounded-r-md border-l border-gray-200' : 'border-l border-gray-200',
-                paperSize === value
+                'px-2.5 py-1 capitalize transition-colors',
+                i === 0 ? 'rounded-l-md' : i === BACKGROUNDS.length - 1 ? 'rounded-r-md border-l border-gray-200' : 'border-l border-gray-200',
+                backgroundPreset === value
                   ? 'bg-ink-50 text-ink-600'
                   : 'text-gray-400 hover:bg-gray-50 hover:text-gray-600'
               )}
@@ -204,53 +188,130 @@ export function Controls() {
             </button>
           ))}
         </div>
+        {backgroundPreset === 'custom-image' && (
+          <input
+            type="text"
+            value={customBackgroundImage}
+            onChange={(e) => setCustomBackgroundImage(e.target.value)}
+            placeholder="/backgrounds/custom-scan.jpg"
+            aria-label="Custom paper image URL"
+            className="h-7 w-44 rounded border border-gray-200 px-2 text-[11px] text-gray-600"
+          />
+        )}
+        {(backgroundPreset === 'custom-image' || pageStyle === 'custom') && (
+          <input
+            type="color"
+            value={customBackground}
+            onChange={(e) => setCustomBackground(e.target.value)}
+            aria-label="Custom paper background"
+            className="h-7 w-20 cursor-pointer rounded border border-gray-200 bg-white"
+          />
+        )}
       </div>
 
       <div className="hidden h-10 w-px bg-gray-100 lg:block" />
 
-      {/* ── Messiness ──────────────────────────────────────────────────── */}
-      <div className="flex min-w-[160px] flex-1 flex-col gap-1.5">
-        <div className="flex items-center justify-between">
-          <label className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Messiness</label>
-          <span className="text-[11px] font-medium text-ink-600">
-            {messinessLabel(messiness)}
-            <span className="ml-1 text-gray-300">·</span>
-            <span className="ml-1 tabular-nums text-gray-400">{messiness}</span>
-          </span>
-        </div>
-        <input
-          type="range" min={0} max={100} step={1} value={messiness}
-          onChange={(e) => setMessiness(Number(e.target.value))}
-          className="slider h-1.5 w-full cursor-pointer appearance-none rounded-full"
-          style={{ background: `linear-gradient(to right, #7c3aed ${messiness}%, #e5e7eb ${messiness}%)` }}
-        />
-        <div className="flex justify-between text-[9px] text-gray-300">
-          <span>Precise</span><span>Wild</span>
-        </div>
+      <div className="flex items-center gap-2">
+        <button
+          suppressHydrationWarning
+          onClick={() => setPrintMode(!printMode)}
+          className={clsx(
+            'rounded-md border px-2.5 py-1 text-[11px] transition-colors',
+            printMode ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+          )}
+          title="Optimize appearance for printing/scanning"
+        >
+          Print Mode
+        </button>
+        <button
+          suppressHydrationWarning
+          onClick={() => setShowRealism((s) => !s)}
+          className={clsx(
+            'rounded-md border px-2.5 py-1 text-[11px] transition-colors',
+            showRealism ? 'border-ink-300 bg-ink-50 text-ink-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+          )}
+        >
+          Realism
+        </button>
+        <button
+          suppressHydrationWarning
+          onClick={() => setShowLayout((s) => !s)}
+          className={clsx(
+            'rounded-md border px-2.5 py-1 text-[11px] transition-colors',
+            showLayout ? 'border-ink-300 bg-ink-50 text-ink-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+          )}
+        >
+          Layout
+        </button>
       </div>
 
-      <div className="hidden h-10 w-px bg-gray-100 lg:block" />
+      {showRealism && (
+        <>
+          <div className="hidden h-10 w-px bg-gray-100 lg:block" />
+          <div className="flex min-w-[160px] flex-1 flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Messiness</label>
+              <span className="text-[11px] font-medium text-ink-600">
+                {messinessLabel(messiness)}
+                <span className="ml-1 text-gray-300">·</span>
+                <span className="ml-1 tabular-nums text-gray-400">{messiness}</span>
+              </span>
+            </div>
+            <input
+              type="range" min={0} max={100} step={1} value={messiness}
+              onChange={(e) => setMessiness(Number(e.target.value))}
+              className="slider h-1.5 w-full cursor-pointer appearance-none rounded-full"
+              style={{ background: `linear-gradient(to right, #7c3aed ${messiness}%, #e5e7eb ${messiness}%)` }}
+            />
+          </div>
 
-      {/* ── Blur ───────────────────────────────────────────────────────── */}
-      <div className="flex min-w-[140px] flex-col gap-1.5">
-        <div className="flex items-center justify-between">
-          <label className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Blur</label>
-          <span className="text-[11px] font-medium text-ink-600">
-            {blurLabel(inkBlur)}
-            <span className="ml-1 text-gray-300">·</span>
-            <span className="ml-1 tabular-nums text-gray-400">{inkBlur.toFixed(1)}</span>
-          </span>
-        </div>
-        <input
-          type="range" min={0} max={2} step={0.1} value={inkBlur}
-          onChange={(e) => setInkBlur(Number(e.target.value))}
-          className="slider h-1.5 w-full cursor-pointer appearance-none rounded-full"
-          style={{ background: `linear-gradient(to right, #7c3aed ${inkBlur / 2 * 100}%, #e5e7eb ${inkBlur / 2 * 100}%)` }}
-        />
-        <div className="flex justify-between text-[9px] text-gray-300">
-          <span>Sharp</span><span>Dreamy</span>
-        </div>
-      </div>
+          <div className="hidden h-10 w-px bg-gray-100 lg:block" />
+          <div className="flex min-w-[140px] flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Blur</label>
+              <span className="text-[11px] font-medium text-ink-600">
+                {blurLabel(inkBlur)}
+                <span className="ml-1 text-gray-300">·</span>
+                <span className="ml-1 tabular-nums text-gray-400">{inkBlur.toFixed(1)}</span>
+              </span>
+            </div>
+            <input
+              type="range" min={0} max={2} step={0.1} value={inkBlur}
+              onChange={(e) => setInkBlur(Number(e.target.value))}
+              className="slider h-1.5 w-full cursor-pointer appearance-none rounded-full"
+              style={{ background: `linear-gradient(to right, #7c3aed ${inkBlur / 2 * 100}%, #e5e7eb ${inkBlur / 2 * 100}%)` }}
+            />
+          </div>
+        </>
+      )}
+
+      {showLayout && (
+        <>
+          <div className="hidden h-10 w-px bg-gray-100 lg:block" />
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+              Paper
+            </label>
+            <div className="flex items-center rounded-md border border-gray-200 text-[11px]">
+              {PAPER_OPTIONS.map(({ value, label }, i) => (
+                <button suppressHydrationWarning
+                  key={value}
+                  onClick={() => setPaperSize(value)}
+                  className={clsx(
+                    'px-2.5 py-1 transition-colors',
+                    i === 0 ? 'rounded-l-md' : i === PAPER_OPTIONS.length - 1 ? 'rounded-r-md border-l border-gray-200' : 'border-l border-gray-200',
+                    paperSize === value
+                      ? 'bg-ink-50 text-ink-600'
+                      : 'text-gray-400 hover:bg-gray-50 hover:text-gray-600'
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="hidden h-10 w-px bg-gray-100 lg:block" />
 
@@ -262,12 +323,12 @@ export function Controls() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 24px)', gridTemplateRows: 'repeat(3, 24px)', gap: 2 }}>
           <div />
           <button suppressHydrationWarning aria-label="Shift text up"
-            onClick={() => shift(0, -STEP)} disabled={textOffsetY <= -60}
+            onClick={() => shift(0, -STEP)} disabled={textOffsetY <= TEXT_OFFSET_MIN}
             className="flex items-center justify-center rounded border border-gray-200 text-[11px] text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 disabled:opacity-30"
           >↑</button>
           <div />
           <button suppressHydrationWarning aria-label="Shift text left"
-            onClick={() => shift(-STEP, 0)} disabled={textOffsetX <= -60}
+            onClick={() => shift(-STEP, 0)} disabled={textOffsetX <= TEXT_OFFSET_MIN}
             className="flex items-center justify-center rounded border border-gray-200 text-[11px] text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 disabled:opacity-30"
           >←</button>
           <button suppressHydrationWarning aria-label="Reset text position"
@@ -280,12 +341,12 @@ export function Controls() {
             )}
           >⊙</button>
           <button suppressHydrationWarning aria-label="Shift text right"
-            onClick={() => shift(STEP, 0)} disabled={textOffsetX >= 60}
+            onClick={() => shift(STEP, 0)} disabled={textOffsetX >= TEXT_OFFSET_MAX}
             className="flex items-center justify-center rounded border border-gray-200 text-[11px] text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 disabled:opacity-30"
           >→</button>
           <div />
           <button suppressHydrationWarning aria-label="Shift text down"
-            onClick={() => shift(0, STEP)} disabled={textOffsetY >= 60}
+            onClick={() => shift(0, STEP)} disabled={textOffsetY >= TEXT_OFFSET_MAX}
             className="flex items-center justify-center rounded border border-gray-200 text-[11px] text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 disabled:opacity-30"
           >↓</button>
           <div />

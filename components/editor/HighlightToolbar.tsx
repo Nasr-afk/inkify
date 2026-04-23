@@ -12,9 +12,11 @@ interface HighlightToolbarProps {
   left:    number
   onColor: (color: string) => void
   onClear: () => void
+  onBlur:  (amount?: number) => void
+  onClearBlur: () => void
 }
 
-export function HighlightToolbar({ top, left, onColor, onClear }: HighlightToolbarProps) {
+export function HighlightToolbar({ top, left, onColor, onClear, onBlur, onClearBlur }: HighlightToolbarProps) {
   return (
     <div
       role="toolbar"
@@ -88,6 +90,52 @@ export function HighlightToolbar({ top, left, onColor, onClear }: HighlightToolb
         }}
       >
         ✕
+      </button>
+
+      <div style={{ width: 1, height: 14, background: 'rgba(0,0,0,0.10)', margin: '0 2px', flexShrink: 0 }} />
+
+      <button
+        suppressHydrationWarning
+        aria-label="Blur selection"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          onBlur(1)
+        }}
+        style={{
+          height: 20,
+          borderRadius: 6,
+          background: '#eef2ff',
+          border: '1.5px solid rgba(99,102,241,0.30)',
+          cursor: 'pointer',
+          padding: '0 6px',
+          flexShrink: 0,
+          fontSize: 10,
+          color: '#4338ca',
+        }}
+      >
+        Blur
+      </button>
+
+      <button
+        suppressHydrationWarning
+        aria-label="Remove blur"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          onClearBlur()
+        }}
+        style={{
+          height: 20,
+          borderRadius: 6,
+          background: '#f8fafc',
+          border: '1.5px solid rgba(100,116,139,0.25)',
+          cursor: 'pointer',
+          padding: '0 6px',
+          flexShrink: 0,
+          fontSize: 10,
+          color: '#475569',
+        }}
+      >
+        Unblur
       </button>
     </div>
   )
