@@ -10,46 +10,53 @@ import { HighlightToolbar } from './HighlightToolbar'
 const SHIFT_STEP = 8
 
 export interface TextLayerProps {
-  text:            string
-  charOffset:      number
+  text:             string
+  charOffset:       number
   pageStringOffset: number
-  options:         HandwritingOptions
-  highlights?:     Highlight[]
-  blurRanges?:     BlurRange[]
-  isFirstPage:     boolean
-  editable:        boolean
-  rawText?:        string
-  inkColor:        string
-  fontSize:        string | number
-  effectiveBlur:   number
-  noiseId:         string
-  textOffsetX:     number
-  textOffsetY:     number
-  lineHeightScale?: number
-  pageTiltDeg?:    number
-  printMode?:      boolean
-  onTextChange?:   (text: string) => void
-  onShift?:        (dx: number, dy: number) => void
-  onAddHighlight?: (start: number, end: number, color: string) => void
+  options:          HandwritingOptions
+  highlights?:      Highlight[]
+  blurRanges?:      BlurRange[]
+  isFirstPage:      boolean
+  editable:         boolean
+  rawText?:         string
+  inkColor:         string
+  fontSize:         string | number
+  effectiveBlur:    number
+  noiseId:          string
+  textOffsetX:      number   // user-controlled — moves both editable and render together
+  textOffsetY:      number
+  renderOffsetX?:   number   // visual-only jitter for handwriting render only
+  renderOffsetY?:   number
+  renderTiltDeg?:   number   // visual-only rotation for handwriting render only
+  // false (default) = single contentEditable layer, no render, perfect cursor
+  // true            = full handwriting render + transparent editable (cursor only)
+  previewMode?:     boolean
+  printMode?:       boolean
+  onTextChange?:    (text: string) => void
+  onShift?:         (dx: number, dy: number) => void
+  onAddHighlight?:  (start: number, end: number, color: string) => void
   onRemoveHighlight?: (id: string) => void
-  onAddBlur?:      (start: number, end: number, amount: number) => void
-  onRemoveBlur?:   (id: string) => void
+  onAddBlur?:       (start: number, end: number, amount: number) => void
+  onRemoveBlur?:    (id: string) => void
 }
 
 export function TextLayer({
   text, charOffset, pageStringOffset, options, highlights, blurRanges,
   isFirstPage, editable, rawText, inkColor, fontSize, effectiveBlur, noiseId,
-  textOffsetX, textOffsetY, lineHeightScale = 1, pageTiltDeg = 0, printMode = false,
+  textOffsetX, textOffsetY, renderOffsetX = 0, renderOffsetY = 0, renderTiltDeg = 0,
+  previewMode = false, printMode = false,
   onTextChange, onShift, onAddHighlight, onRemoveHighlight, onAddBlur, onRemoveBlur,
 }: TextLayerProps) {
   const fontSizeStr = typeof fontSize === 'string' ? fontSize : `${fontSize}px`
-  const fontFamily = options.fontFamily ?? 'serif'
-  const lineHeightValue = options.lineHeight ?? 1.9
-  const effectiveLineHeight = Number(lineHeightValue) * lineHeightScale
-  const editableRef = useRef<HTMLDivElement>(null)
-  const pageRef = useRef<HTMLDivElement>(null)
+  const fontFamily  = options.fontFamily ?? 'serif'
+  const effectiveLineHeight = Number(options.lineHeight ?? 1.9)
+  const editableRef    = useRef<HTMLDivElement>(null)
+  const pageRef        = useRef<HTMLDivElement>(null)
   const isComposingRef = useRef(false)
   const initializedRef = useRef(false)
+
+  // Render layer is active for non-editable pages (always) and for editable page in preview/print mode
+  const showRender = !editable || previewMode || printMode
 
   useEffect(() => {
     if (initializedRef.current) return
@@ -59,7 +66,9 @@ export function TextLayer({
     el.innerText = rawText
   }, [editable, rawText])
 
+  // Skip the expensive handwriting computation when render layer is not visible
   const nodes = useMemo(() => {
+    if (!showRender) return []
     if (!text && !isFirstPage) return []
     return renderHandwriting(text, {
       ...options,
@@ -69,19 +78,16 @@ export function TextLayer({
       blurRanges,
       printMode,
     })
-  }, [text, isFirstPage, options, charOffset, pageStringOffset, highlights, blurRanges, printMode])
+  }, [showRender, text, isFirstPage, options, charOffset, pageStringOffset, highlights, blurRanges, printMode])
 
-  const { toolbarPos, setToolbarPos, handleSelectionChange, handleAddHighlight, handleClearHighlight, handleAddBlur, handleClearBlur } =
-    useSelection({
-      editableRef,
-      pageRef,
-      highlights,
-      blurRanges,
-      onAddHighlight,
-      onRemoveHighlight,
-      onAddBlur,
-      onRemoveBlur,
-    })
+  const {
+    toolbarPos, setToolbarPos,
+    handleSelectionChange, handleAddHighlight, handleClearHighlight,
+    handleAddBlur, handleClearBlur,
+  } = useSelection({
+    editableRef, pageRef, highlights, blurRanges,
+    onAddHighlight, onRemoveHighlight, onAddBlur, onRemoveBlur,
+  })
 
   return (
     <div
@@ -90,57 +96,68 @@ export function TextLayer({
         position:   'absolute',
         inset:      0,
         overflow:   'hidden',
-        transform:  `translate(${textOffsetX}px, ${textOffsetY}px) rotate(${pageTiltDeg.toFixed(3)}deg)`,
+        transform:  `translate(${textOffsetX}px, ${textOffsetY}px)`,
         transition: 'transform 0.15s ease',
-        transformOrigin: 'left top',
       }}
     >
-      <svg aria-hidden width={0} height={0} style={{ position: 'absolute', pointerEvents: 'none' }}>
-        <defs>
-          <filter id={noiseId} x="-5%" y="-5%" width="110%" height="110%" colorInterpolationFilters="sRGB">
-            <feTurbulence type="fractalNoise" baseFrequency="0.80 0.70" numOctaves={3} seed={7} stitchTiles="stitch" result="noise" />
-            <feColorMatrix type="saturate" values="0" in="noise" result="grayNoise" />
-            <feComposite in="grayNoise" in2="SourceGraphic" operator="in" result="maskedNoise" />
-            <feBlend in="SourceGraphic" in2="maskedNoise" mode="soft-light" />
-          </filter>
-        </defs>
-      </svg>
-
-      {/* ── Handwriting render ────────────────────────────────────────────── */}
-      {nodes.length > 0 ? (
-        <div
-          className="break-words"
-          style={{
-            lineHeight:    effectiveLineHeight,
-            color:         inkColor,
-            opacity:       printMode ? 0.84 : 0.9,
-            filter:        `url(#${noiseId}) blur(${(effectiveBlur + (printMode ? 0.06 : 0.02)).toFixed(3)}px) saturate(${printMode ? 0.88 : 0.98})`,
-            transition:    'filter 0.2s ease',
-            pointerEvents: editable ? 'none' : undefined,
-            mixBlendMode:  'multiply',
-          }}
-        >
-          {nodes}
-        </div>
-      ) : (
-        !editable && isFirstPage && (
-          <div
-            style={{
-              height: '100%', display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', gap: 12,
-              userSelect: 'none', pointerEvents: 'none',
-            }}
-          >
-            <span style={{ fontSize: 28, opacity: 0.15 }}>✦</span>
-            <p style={{ fontSize: 13, color: '#d1d5db' }}>Start typing to see your handwriting</p>
-          </div>
-        )
+      {/* ── SVG noise filter — only needed when render layer is active ──── */}
+      {showRender && (
+        <svg aria-hidden width={0} height={0} style={{ position: 'absolute', pointerEvents: 'none' }}>
+          <defs>
+            <filter id={noiseId} x="-5%" y="-5%" width="110%" height="110%" colorInterpolationFilters="sRGB">
+              <feTurbulence type="fractalNoise" baseFrequency="0.80 0.70" numOctaves={3} seed={7} stitchTiles="stitch" result="noise" />
+              <feColorMatrix type="saturate" values="0" in="noise" result="grayNoise" />
+              <feComposite in="grayNoise" in2="SourceGraphic" operator="in" result="maskedNoise" />
+              <feBlend in="SourceGraphic" in2="maskedNoise" mode="soft-light" />
+            </filter>
+          </defs>
+        </svg>
       )}
 
-      {/* ── Editable overlay (page 0 only) ────────────────────────────────── */}
+      {/* ── Handwriting render — active in preview/print or for non-editable pages ── */}
+      {showRender && (
+        <div
+          aria-hidden
+          style={{
+            position:        'absolute',
+            inset:           0,
+            pointerEvents:   'none',
+            transform:       renderOffsetX || renderOffsetY || renderTiltDeg
+              ? `translate(${renderOffsetX}px, ${renderOffsetY}px) rotate(${renderTiltDeg.toFixed(3)}deg)`
+              : undefined,
+            transformOrigin: 'left top',
+          }}
+        >
+          {nodes.length > 0 ? (
+            <div
+              className="break-words"
+              style={{
+                lineHeight:   effectiveLineHeight,
+                color:        inkColor,
+                opacity:      printMode ? 0.84 : 0.9,
+                filter:       `url(#${noiseId}) blur(${(effectiveBlur + (printMode ? 0.06 : 0.02)).toFixed(3)}px) saturate(${printMode ? 0.88 : 0.98})`,
+                transition:   'filter 0.2s ease',
+                mixBlendMode: 'multiply',
+              }}
+            >
+              {nodes}
+            </div>
+          ) : (
+            !editable && isFirstPage && (
+              <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, userSelect: 'none' }}>
+                <span style={{ fontSize: 28, opacity: 0.15 }}>✦</span>
+                <p style={{ fontSize: 13, color: '#d1d5db' }}>Start typing to see your handwriting</p>
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {/* ── Editable layer (page 0 only) ──────────────────────────────────── */}
       {editable && (
         <>
-          {!rawText && (
+          {/* Placeholder — only visible in typing mode with no text */}
+          {!rawText && !previewMode && (
             <div
               aria-hidden
               style={{
@@ -159,9 +176,9 @@ export function TextLayer({
             contentEditable
             suppressContentEditableWarning
             spellCheck={false}
-            onCompositionStart={() => { if (isComposingRef) isComposingRef.current = true }}
+            onCompositionStart={() => { isComposingRef.current = true }}
             onCompositionEnd={(e) => {
-              if (isComposingRef) isComposingRef.current = false
+              isComposingRef.current = false
               onTextChange?.(e.currentTarget.innerText)
             }}
             onMouseUp={handleSelectionChange}
@@ -185,7 +202,7 @@ export function TextLayer({
             }}
             onInput={(e) => {
               setToolbarPos(null)
-              if (isComposingRef?.current) return
+              if (isComposingRef.current) return
               onTextChange?.(e.currentTarget.innerText)
             }}
             onPaste={(e) => {
@@ -206,8 +223,6 @@ export function TextLayer({
             style={{
               position:   'absolute',
               inset:      0,
-              color:      'rgba(17, 24, 39, 0.015)',
-              caretColor: inkColor,
               lineHeight: effectiveLineHeight,
               fontSize:   fontSizeStr,
               fontFamily,
@@ -216,6 +231,14 @@ export function TextLayer({
               outline:    'none',
               cursor:     'text',
               overflowY:  'hidden',
+              fontVariantLigatures: 'none' as const,
+              caretColor: inkColor,
+              // Typing mode: contentEditable IS the visible text — no render layer
+              // Preview mode: nearly transparent — render layer shows beneath it
+              ...(previewMode
+                ? { color: 'rgba(17,24,39,0.015)' }
+                : { color: inkColor, opacity: 0.9, letterSpacing: '-0.01em' }
+              ),
             }}
           />
         </>

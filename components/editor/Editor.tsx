@@ -55,6 +55,7 @@ export function Editor() {
   } = useEditor()
   const [pageCount, setPageCount] = useState(1)
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel | 'fit'>('fit')
+  const [previewMode, setPreviewMode] = useState(false)
   const paper = useMemo(() => getPaper(paperSize), [paperSize])
   const [scrollRef, containerWidth] = useContainerWidth()
   const { debounced: debouncedText, isPending } = useDebounce(text, 300)
@@ -144,9 +145,8 @@ export function Editor() {
                       {(() => {
                         const marginOffsetX = deterministicJitter(page.pageIndex, 1) * 2.2
                         const marginOffsetY = deterministicJitter(page.pageIndex, 2) * 2.0
-                        const lineHeightScale = 1 + deterministicJitter(page.pageIndex, 3) * 0.015
-                        const alignShiftX = deterministicJitter(page.pageIndex, 4) * 2.5
-                        const pageTiltDeg = deterministicJitter(page.pageIndex, 5) * 0.18
+                        const alignShiftX   = deterministicJitter(page.pageIndex, 4) * 2.5
+                        const pageTiltDeg   = deterministicJitter(page.pageIndex, 5) * 0.18
                         return (
                       <Paper
                         pageIndex={page.pageIndex}
@@ -173,10 +173,12 @@ export function Editor() {
                           fontSize={`${computedFontSize}px`}
                           effectiveBlur={Math.min(2, inkBlur + (messiness / 100) * 0.3)}
                           noiseId={`inkify-noise-${page.pageIndex}`}
-                          textOffsetX={textOffsetX + alignShiftX + marginOffsetX}
-                          textOffsetY={textOffsetY + marginOffsetY}
-                          lineHeightScale={lineHeightScale}
-                          pageTiltDeg={pageTiltDeg}
+                          textOffsetX={textOffsetX}
+                          textOffsetY={textOffsetY}
+                          renderOffsetX={alignShiftX + marginOffsetX}
+                          renderOffsetY={marginOffsetY}
+                          renderTiltDeg={pageTiltDeg}
+                          previewMode={previewMode}
                           printMode={printMode}
                           onShift={(dx, dy) => {
                             shiftTextOffset(dx, dy)
@@ -196,7 +198,24 @@ export function Editor() {
               </div>
             </div>
 
-            <div className="pointer-events-none absolute bottom-4 right-4 z-10">
+            <div className="pointer-events-none absolute bottom-4 right-4 z-10 flex flex-col items-end gap-2">
+              {/* ── Preview mode toggle ─────────────────────────────────── */}
+              <div className="pointer-events-auto">
+                <button
+                  suppressHydrationWarning
+                  onClick={() => setPreviewMode((p) => !p)}
+                  className={clsx(
+                    'rounded-md border px-3 py-1 text-[11px] font-medium shadow-sm backdrop-blur-sm transition-colors',
+                    previewMode
+                      ? 'border-ink-400/60 bg-ink-50/90 text-ink-600'
+                      : 'border-gray-200/70 bg-white/80 text-gray-500 hover:bg-gray-50/90 hover:text-gray-700'
+                  )}
+                >
+                  {previewMode ? 'Editing' : 'Preview'}
+                </button>
+              </div>
+
+              {/* ── Zoom controls ───────────────────────────────────────── */}
               <div className="pointer-events-auto flex items-center rounded-md border border-gray-200/70 bg-white/80 text-[11px] shadow-sm backdrop-blur-sm">
                 <button
                   suppressHydrationWarning
